@@ -40,11 +40,15 @@ ZERO = Pose(
 RETRACT = 250.0
 RAISE = 50.0
 # Height of the throw stroke above MIDDLE.
-STROKE = 90.0
-# Largest joint change allowed between MIDDLE and TOP. A 90mm lift moves each joint a few
-# degrees; anything near this means IK landed on a different arm configuration, and snapping
-# between two of those at throw speed would swing the whole arm.
-MAX_STROKE_DEG = 45.0
+STROKE = 200.0
+# The staging point and the throw are swung this far about the base's vertical axis
+# (right-hand rule about world Z). Negative turns the arm to its right when facing +x. The
+# hand stays level and the stroke stays vertical; only where the arm points changes.
+YAW_DEG = -30.0
+# Largest joint change allowed between MIDDLE and TOP. The stroke moves each joint a few tens
+# of degrees; anything near this means IK landed on a different arm configuration, and
+# snapping between two of those at throw speed would swing the whole arm.
+MAX_STROKE_DEG = 70.0
 
 
 def shifted(pose, dx=0.0, dy=0.0, dz=0.0):
@@ -56,7 +60,64 @@ def shifted(pose, dx=0.0, dy=0.0, dz=0.0):
     return out
 
 
-MIDDLE = shifted(ZERO, dx=-RETRACT, dz=RAISE)
+def yawed(pose, deg):
+    """Pose swung about the world Z axis through the base (right-hand rule): position and
+    tool axis both rotate, so the hand keeps facing along the arm. Theta is unchanged --
+    Viam's orientation-vector theta is defined relative to world Z, so a yaw leaves it."""
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    out = Pose()
+    out.CopyFrom(pose)
+    out.x, out.y = pose.x * c - pose.y * s, pose.x * s + pose.y * c
+    out.o_x, out.o_y = pose.o_x * c - pose.o_y * s, pose.o_x * s + pose.o_y * c
+    return out
+
+
+def blend(a, b, t):
+    """Pose partway (t in 0..1) from a to b: position lerped, tool axis slerped along the
+    great circle, theta lerped the short way round. Antiparallel axes have no unique great
+    circle, so the tool swings through +z (up) rather than through the base."""
+    a_axis = _unit((a.o_x, a.o_y, a.o_z))
+    b_axis = _unit((b.o_x, b.o_y, b.o_z))
+    omega = math.acos(max(-1.0, min(1.0, sum(i * j for i, j in zip(a_axis, b_axis)))))
+    if omega > math.radians(170.0):
+        # Near-antiparallel slerp is ill-conditioned (weights blow up as sin(omega) -> 0), so
+        # swing through +z (or +y if the axis already is z) in two well-behaved halves.
+        mid = (0.0, 1.0, 0.0) if abs(a_axis[2]) > 0.9 else (0.0, 0.0, 1.0)
+        axis = _slerp(a_axis, mid, t * 2) if t < 0.5 else _slerp(mid, b_axis, t * 2 - 1)
+    else:
+        axis = _slerp(a_axis, b_axis, t)
+
+    dtheta = (b.theta - a.theta + 180.0) % 360.0 - 180.0
+    theta = (a.theta + dtheta * t + 180.0) % 360.0 - 180.0
+    return Pose(
+        x=a.x + (b.x - a.x) * t,
+        y=a.y + (b.y - a.y) * t,
+        z=a.z + (b.z - a.z) * t,
+        o_x=axis[0], o_y=axis[1], o_z=axis[2],
+        theta=theta,
+    )
+
+
+def _unit(v):
+    n = math.sqrt(sum(i * i for i in v))
+    return tuple(i / n for i in v)
+
+
+def _slerp(a, b, t):
+    omega = math.acos(max(-1.0, min(1.0, sum(i * j for i, j in zip(a, b)))))
+    if omega < 1e-6:
+        return b
+    wa, wb = math.sin((1 - t) * omega) / math.sin(omega), math.sin(t * omega) / math.sin(omega)
+    return _unit(tuple(wa * i + wb * j for i, j in zip(a, b)))
+
+
+def axis_angle_deg(a, b):
+    """Angle between two poses' tool axes, in degrees."""
+    dot = a.o_x * b.o_x + a.o_y * b.o_y + a.o_z * b.o_z
+    return math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+
+
+MIDDLE = yawed(shifted(ZERO, dx=-RETRACT, dz=RAISE), YAW_DEG)
 TOP = shifted(MIDDLE, dz=STROKE)
 
 # A single move_to_position/move_to_joint_positions call this far can trip the controller's
@@ -65,6 +126,9 @@ TOP = shifted(MIDDLE, dz=STROKE)
 # no farther apart than this instead; a step that still faults backs off toward this floor.
 APPROACH_STEP_MM = 150.0
 MIN_APPROACH_STEP_MM = 5.0
+# Likewise for the tool's rotation between waypoints, so a big reorientation is spread over
+# the path instead of forced on the first step.
+APPROACH_STEP_DEG = 20.0
 
 
 class Juggler:
@@ -80,6 +144,10 @@ class Juggler:
         """Park at the staging pose the throw launches from and returns to."""
         await self._approach(MIDDLE)
 
+    # Measured ceiling: the driver silently clamps joint speed to 180deg/s and acceleration to
+    # ~4000deg/s^2 (xArm6 hardware limits). Passing more changes nothing -- timed identical
+    # strokes from 180 to 900deg/s. More launch velocity has to come from geometry: a longer
+    # lever arm (less RETRACT) moves the tip further per degree at the same joint speed.
     async def throw(self, vel=180.0, acc=4000.0):
         """Toss whatever rests on top of the gripper: stage at MIDDLE, snap straight up by
         STROKE and straight back down to MIDDLE. A slow rehearsal lets the arm's own IK resolve
@@ -89,7 +157,7 @@ class Juggler:
         the gripper decelerates out from under it."""
         await self._approach(MIDDLE)
         middle_joints = await self._joints()
-        await self.arm.move_to_position(TOP)
+        await self._approach(TOP)
         top_joints = await self._joints()
         await self.arm.move_to_joint_positions(JointPositions(values=middle_joints))
 
@@ -99,13 +167,20 @@ class Juggler:
                 f"IK put TOP {swing:.0f}deg from MIDDLE on one joint; refusing to throw"
             )
 
-        # The object only separates if the gripper decelerates faster than gravity. The joint
-        # that moves most sets the timing, so its share of the stroke gives the tip's rate.
-        tip_decel = STROKE / swing * acc / 1000
+        # The joint that moves most sets the timing, so its share of the stroke converts joint
+        # rates to tip rates. The object leaves at the tip's peak velocity, which is the
+        # ceiling only if the joint can reach it before it must start decelerating; over a
+        # short swing the peak is acceleration-limited (triangular profile) instead. It only
+        # separates at all if the gripper then decelerates faster than gravity.
+        mm_per_deg = STROKE / swing
+        peak_deg_s = min(vel, math.sqrt(acc * swing))
+        launch_ms = mm_per_deg * peak_deg_s / 1000
+        tip_decel = mm_per_deg * acc / 1000
         print(
-            f"throw: {STROKE:.0f}mm stroke, {swing:.1f}deg on the widest joint, "
-            f"tip decel ~{tip_decel:.1f} m/s^2"
-            + (" -- under 9.8, object will not separate" if tip_decel < 9.8 else "")
+            f"throw: {STROKE:.0f}mm stroke yawed {YAW_DEG:+.0f}deg, {swing:.1f}deg on the widest joint, "
+            f"launch ~{launch_ms:.1f} m/s (~{launch_ms**2 / 19.6 * 1000:.0f}mm high)"
+            + (f", {'vel' if peak_deg_s == vel else 'acc'}-limited")
+            + (", tip decel under 9.8 m/s^2 -- object will not separate" if tip_decel < 9.8 else "")
         )
         await self._move_through([top_joints, middle_joints], vel, acc)
         # Settle on MIDDLE explicitly so the throw always ends there, whatever the fast
@@ -154,37 +229,36 @@ class Juggler:
         )
         await self.arm.client.MoveThroughJointPositions(request, metadata=self.arm.Metadata().proto)
 
-    async def _approach(self, target, step_mm=APPROACH_STEP_MM):
-        """Move to a Cartesian pose in position increments along the straight line from wherever
-        the arm currently sits, holding the target's orientation throughout. If a given step
-        trips the controller's ServoJ speed fault, that step alone is retried at half the size
-        rather than failing the whole approach -- it's a mechanical limit on how much ground one
-        call can cover, not a sign the step's destination is bad. Any other error (self-collision,
+    async def _approach(self, target):
+        """Move to a Cartesian pose through waypoints blended from wherever the arm currently
+        sits: position and tool orientation advance together, so no intermediate pose asks for
+        the target's orientation at a position that can't support it. Steps are bounded in both
+        travel and rotation. If a step trips the controller's ServoJ speed fault, that step
+        alone is retried at half the size -- it's a mechanical limit on how much ground one call
+        can cover, not a sign the step's destination is bad. Any other error (self-collision,
         unreachable) means the target itself is the problem and is raised immediately."""
-        current = await self.arm.get_end_position()
-        total = math.dist((current.x, current.y, current.z), (target.x, target.y, target.z))
-        if total < 1.0:
+        start = await self.arm.get_end_position()
+        travel = math.dist((start.x, start.y, start.z), (target.x, target.y, target.z))
+        turn = axis_angle_deg(start, target)
+        if travel < 1.0 and turn < 0.5:
             await self.arm.move_to_position(target)
             return
 
-        ux = (target.x - current.x) / total
-        uy = (target.y - current.y) / total
-        uz = (target.z - current.z) / total
-        pos = [current.x, current.y, current.z]
-        traveled = 0.0
-
-        while traveled < total - 1e-6:
-            this_step = min(step_mm, total - traveled)
-            candidate = [pos[0] + ux * this_step, pos[1] + uy * this_step, pos[2] + uz * this_step]
-            waypoint = shifted(target, dx=candidate[0] - target.x, dy=candidate[1] - target.y, dz=candidate[2] - target.z)
+        # Fraction of the whole path one step may cover, from whichever of distance or
+        # rotation is the tighter bound.
+        step = 1.0 / max(1, math.ceil(travel / APPROACH_STEP_MM), math.ceil(turn / APPROACH_STEP_DEG))
+        floor = step * MIN_APPROACH_STEP_MM / APPROACH_STEP_MM
+        t = 0.0
+        while t < 1.0 - 1e-9:
+            t_next = min(1.0, t + step)
             try:
-                await self.arm.move_to_position(waypoint)
+                await self.arm.move_to_position(target if t_next >= 1.0 else blend(start, target, t_next))
             except GRPCError as e:
-                if SERVO_SPEED_FAULT in str(e) and step_mm > MIN_APPROACH_STEP_MM:
-                    step_mm = max(step_mm / 2, MIN_APPROACH_STEP_MM)
+                if SERVO_SPEED_FAULT in str(e) and step > floor:
+                    step = max(step / 2, floor)
                     continue
                 raise
-            pos, traveled = candidate, traveled + this_step
+            t = t_next
 
     async def _joints(self):
         return list((await self.arm.get_joint_positions()).values)
