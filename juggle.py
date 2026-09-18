@@ -4,6 +4,8 @@ import sys
 from viam.components.arm import Arm
 from viam.proto.component.arm import JointPositions
 
+import connect
+
 
 
 class Juggler:
@@ -12,23 +14,30 @@ class Juggler:
 
     async def zero(self):
         """Zero out all the joints, returning the arm to a flat, outstretched position."""
-        arm = Arm.from_robot(self.robot, "arm-1")
+        arm = Arm.from_robot(self.robot, "arm")
         await arm.move_to_joint_positions(
-            JointPositions(values=[0, 0, 0, 0, 0, 0])
+            JointPositions(values=[5, -5.6, 5.9, 2.0, -92.4, 0.4])
         )
+
+    async def throw(self):
+        """Throw the ball"""
+        arm = Arm.from_robot(self.robot, "arm-1")
+
+
+
 
     
 
 
 # verb -> method. One entry per capability.
 STEPS = {
-    "throw": Juggler.wave,
+    "throw": Juggler.throw,
     "zero": Juggler.zero,
 }
 
 
 async def main(verb):
-    robot = await helpers.connect()
+    robot = await connect.connect()
     juggler = Juggler(robot)
     try:
         step = STEPS.get(verb)
