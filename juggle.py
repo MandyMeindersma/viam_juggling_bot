@@ -11,17 +11,19 @@ import connect
 class Juggler:
     def __init__(self, robot):
         self.robot = robot
+        self.arm = Arm.from_robot(self.robot, "arm")
 
     async def zero(self):
         """Zero out all the joints, returning the arm to a flat, outstretched position."""
-        arm = Arm.from_robot(self.robot, "arm")
-        await arm.move_to_joint_positions(
+        await self.arm.move_to_joint_positions(
             JointPositions(values=[5, -5.6, 5.9, 2.0, -92.4, 0.4])
         )
 
     async def throw(self):
         """Throw the ball"""
-        arm = Arm.from_robot(self.robot, "arm-1")
+        await self.arm.move_to_joint_positions(
+            JointPositions(values=[5.0, -38.4, 4.3, 0.7, -64.5, 0.4])
+        )
 
 
 
