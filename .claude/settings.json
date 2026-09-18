@@ -1,0 +1,5 @@
+{
+  "enabledPlugins": {
+    "viam-skills@viam-agent-skills": true
+  }
+}

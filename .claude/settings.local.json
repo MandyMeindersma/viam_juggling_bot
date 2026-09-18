@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh --version)",
+      "Bash(gh api *)",
+      "Bash(python3 -c ' *)",
+      "Bash(ls -la \"$HOME/.claude\" 2>&1 | head -50)",
+      "Read(//c/Users/ebd/.claude/**)",
+      "Bash(find 'C:\\\\Users\\\\ebd/.claude' -maxdepth 2 -iname *marketplace* -o -iname *plugin*)",
+      "Bash(claude plugin *)"
+    ]
+  }
+}
