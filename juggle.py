@@ -24,32 +24,39 @@ class Juggler:
         self.arm = Arm.from_robot(self.robot, "arm")
         self.motion = MotionClient.from_robot(self.robot, "builtin")
 
+        self.top_throw = JointPositions(values=[41.48, -72.58, -181.52, -3.52, -17.50, 3.70])
+        self.mid_throw = JointPositions(values=[41.48, -92.6, -211.52, -3.52, -10, 3.70])
+        self.three_throw = JointPositions(values=[41.48, -97.6, -211.52, -3.52, -5, 3.70])
+        self.two_throw = JointPositions(values=[41.48, -102.6, -211.52, -3.52, 0, 3.70])
+        self.one_throw = JointPositions(values=[41.48, -107.6, -211.52, -3.52, 2.50, 3.70])
+        self.zero_place = JointPositions(values=[41.48, -112.58, -211.52, -3.52, 2.50, 3.70])
+
+
     async def zero(self):
-        """Zero out all the joints, returning the arm to a flat, outstretched position."""
-        print((await self.arm.get_joint_positions()).values)
+        await self.arm.move_to_joint_positions(self.zero_place)
 
+    async def test(self):
+        await self.arm.move_to_joint_positions(self.mid_throw)
 
-        #task_a = asyncio.create_task(self.log_joint_speeds())
-        #task_b = asyncio.create_task(self.arm.move_to_joint_positions(JointPositions(values=[43.91, -105.07, -215.38, 5.55, 12.72, -11.52])))
-        #await task_a
-        #await task_b
-        slow = MoveOptions(max_vel_degs_per_sec=10, max_acc_degs_per_sec2=1100)
-        await self.arm.move_through_joint_positions([JointPositions(values=[41.48, -112.58, -211.52, -3.52, 2.50, -11.30])], options= slow)
-
+    async def hand(self):
+        await self.arm.move_to_joint_positions(JointPositions(values=[41.48, -112.58, -211.52, -3.52, 57.50, 3.70]))
         
 
     async def throw(self):
-        """Zero out all the joints, returning the arm to a flat, outstretched position."""
-        print((await self.arm.get_joint_positions()).values)
+        await self.arm.move_through_joint_positions([self.one_throw, self.two_throw, self.three_throw, self.mid_throw, self.top_throw])
 
-        #task_a = asyncio.create_task(self.log_joint_speeds())
-        task_b = asyncio.create_task(self.arm.move_to_joint_positions(JointPositions(values=[43.91, -95.07, -170.38, 5.55, 12.72, -11.52])))
-        #await task_a
-        await task_b
+    async def full(self):
+        sleep_time = 0.2
+        await self.arm.move_through_joint_positions([self.one_throw, self.two_throw, self.three_throw, self.mid_throw, self.top_throw])
+        await asyncio.sleep(sleep_time)
+        await self.arm.move_to_joint_positions(self.zero_place)
+        await asyncio.sleep(sleep_time)
+        await self.arm.move_through_joint_positions([self.one_throw, self.two_throw, self.three_throw, self.mid_throw, self.top_throw])
+        await asyncio.sleep(sleep_time)    
+        await self.arm.move_to_joint_positions(self.zero_place)
 
 
     async def launch(self):
-        """Zero out all the joints, returning the arm to a flat, outstretched position."""
         print((await self.arm.get_joint_positions()).values)
 
         #task_a = asyncio.create_task(self.log_joint_speeds())
@@ -101,6 +108,9 @@ STEPS = {
     "throw": Juggler.throw,
     "zero": Juggler.zero,
     "launch": Juggler.launch,
+    "hand": Juggler.hand,
+    "test": Juggler.test,
+    "full": Juggler.full,
 }
 
 
