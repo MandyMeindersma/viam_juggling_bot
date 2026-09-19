@@ -25,14 +25,14 @@ class Juggler:
 
     async def zero(self):
         """Zero out all the joints, returning the arm to a flat, outstretched position."""
-        await self.arm.move_to_joint_positions(JointPositions(values=[43.91, -90.07, -215.38, 5.55, 32.72, -11.52]))
+        await self.arm.move_to_joint_positions(JointPositions(values=[43.91, -105.07, -215.38, 5.55, 12.72, -11.52]))
 
 
         
 
     async def throw(self):
         """Zero out all the joints, returning the arm to a flat, outstretched position."""
-        await self.arm.move_to_joint_positions(JointPositions(values=[43.91, -70, -215.38, 5.55, 32.72, -11.52]))
+        await self.arm.move_to_joint_positions(JointPositions(values=[43.91, -95.07, -170.38, 5.55, 12.72, -11.52]))
 
         
 
