@@ -49,6 +49,11 @@ The admin panel doesn't let you change the max speed of the arm... It is a greye
 </br>
 **Solution:** Write python code in the admin panel to hack the speed limit to be higher hahaha `arm.set_linear_spd_limit_factor(5)` which sets a max linear speed of 5m/s (1m/s * 5)
 
+# Problem #7
+Now we finally have no software limits on the arm for it to go as fast as we want BUT THEN we get to the exciting world of hardware limits. The arm reported a "motor overload" error which means the acceleration of the joint is drawing too much current. This causes the voltage to drop and the arm stalls. 
+</br>
+**Solution:** With the "flick" that we currently have, it is going from A -> B -> C and the biggest spike in acceleration is in between A and B so we have to add some interpolation steps (not as many as `move_through_joint_positions` would add with path planning) to lessen the acceleration. So we end up with something like this: A -> a1 -> a2 -> B -> C 
+
 Now we finally have it launching it!!!!! It is hitting the ceiling!
 
 
