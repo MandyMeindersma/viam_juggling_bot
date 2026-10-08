@@ -27,7 +27,7 @@ Now that we have the joints moving it is going faster but no where near as fast 
 # Problem #3
 The function `move_through_joint_positions` was not going fast enough. We were trying to figure out a way to be able to pass in the speed through an option but when talking to Viam they knew it was supported with go but they weren't sure if python supported it. It turns out they do support it, just on an unreleased version of the viam sdk. 
 </br>
-**Solution:** Build the source code of the viam sdk and then use that version to run the move through joint position. 
+**Solution:** Build the source code of the viam sdk and then use that version to run the move through joint position. Or later we figured out we could have just ran `pip3 install viam-sdk==0.81.0`
 
 # Problem #4
 The function `move_through_joint_positions` was still not going fast enough. That function does interpolation calculations between A -> B -> C so it is more like A -> a1 -> a2 -> a3 -> B -> b1 -> b2 -> b3 -> C. Stopping in that many places means that arms velocity or acceleration are not maxing out.
